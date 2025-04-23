@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log.scoped(.open_gl);
 const root = @import("root");
 pub const binding = @import("binding.zig");
 
@@ -23,15 +24,41 @@ pub const ErrorHandling = enum {
 const error_handling: ErrorHandling = if (@hasDecl(root, "opengl_error_handling"))
     root.opengl_error_handling
 else if (std.debug.runtime_safety)
-    .assert
+    .log
 else
     .none;
+
+fn clearError() void {
+    if (error_handling == .none)
+        return;
+
+    var error_code = binding.getError();
+    while (error_code != binding.NO_ERROR) : (error_code = binding.getError()) {
+        const name = switch (error_code) {
+            binding.INVALID_ENUM => "invalid enum",
+            binding.INVALID_VALUE => "invalid value",
+            binding.INVALID_OPERATION => "invalid operation",
+            binding.STACK_OVERFLOW => "stack overflow",
+            binding.STACK_UNDERFLOW => "stack underflow",
+            binding.OUT_OF_MEMORY => "out of memory",
+            binding.INVALID_FRAMEBUFFER_OPERATION => "invalid framebuffer operation",
+            // binding.INVALID_FRAMEBUFFER_OPERATION_EXT => Error.InvalidFramebufferOperation,
+            // binding.INVALID_FRAMEBUFFER_OPERATION_OES => Error.InvalidFramebufferOperation,
+            //binding.TABLE_TOO_LARGE => "Table too large",
+            // binding.TABLE_TOO_LARGE_EXT => Error.TableTooLarge,
+            //binding.TEXTURE_TOO_LARGE_EXT => "Texture too large",
+            else => "unknown error",
+        };
+
+        log.err("clearError: {s}", .{name});
+    }
+}
 
 /// Checks if a OpenGL error happend and may yield it.
 /// This function is configurable via `opengl_error_handling` in the root file.
 /// In Debug mode, unexpected error codes will be unreachable, in all release modes
 /// they will be safely wrapped to `error.UnexpectedError`.
-fn checkError() void {
+fn checkError(blame: []const u8) void {
     if (error_handling == .none)
         return;
 
@@ -55,10 +82,10 @@ fn checkError() void {
             else => "unknown error",
         };
 
-        std.log.scoped(.OpenGL).err("OpenGL failure: {s}\n", .{name});
+        log.err("{s}: {s}", .{blame, name});
         switch (error_handling) {
             .log => {},
-            .assert => @panic("OpenGL error"),
+            .assert => @panic("open_gl error"),
             .none => unreachable,
         }
     }
@@ -200,7 +227,7 @@ pub fn debugMessageCallback(context: anytype, comptime handler: DebugMessageCall
             const msg_type = translateMessageType(c_msg_type);
             const severity = translateSeverity(c_severity);
 
-            const message = c_message[0..@as(usize, @intCast(length))];
+            const message = c_message[0..@as(usize, @intCast(@max(0, length)))];
 
             if (is_void) {
                 handler(debug_source, msg_type, id, severity, message);
@@ -209,15 +236,16 @@ pub fn debugMessageCallback(context: anytype, comptime handler: DebugMessageCall
             }
         }
     };
-
+    clearError();
     if (is_void)
         binding.debugMessageCallback(H.callback, null)
     else
         binding.debugMessageCallback(H.callback, @as(?*const anyopaque, @ptrCast(context)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn debugMessageInsert(source: DebugSource, msg_type: DebugMessageType, id: u32, severity: DebugSeverity, message: []const u8) void {
+    clearError();
     binding.debugMessageInsert(
         @intFromEnum(source),
         @intFromEnum(msg_type),
@@ -226,33 +254,39 @@ pub fn debugMessageInsert(source: DebugSource, msg_type: DebugMessageType, id: u
         @intCast(message.len),
         message.ptr,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn clearColor(r: f32, g: f32, b: f32, a: f32) void {
+    clearError();
     binding.clearColor(r, g, b, a);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn clearDepth(depth: f32) void {
+    clearError();
     binding.clearDepth(depth);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn clear(mask: struct { color: bool = false, depth: bool = false, stencil: bool = false }) void {
+    clearError();
     binding.clear(@as(types.BitField, if (mask.color) binding.COLOR_BUFFER_BIT else 0) |
         @as(types.BitField, if (mask.depth) binding.DEPTH_BUFFER_BIT else 0) |
         @as(types.BitField, if (mask.stencil) binding.STENCIL_BUFFER_BIT else 0));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn flush() void {
+    clearError();
     binding.flush();
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn colorMask(r: bool, g: bool, b: bool, a: bool) void {
+    clearError();
     binding.colorMask(b2gl(r), b2gl(g), b2gl(b), b2gl(a));
+    checkError(@src().fn_name);
 }
 
 pub const ColorBuffer = enum(types.Enum) {
@@ -278,11 +312,15 @@ pub const ColorBuffer = enum(types.Enum) {
 };
 
 pub fn drawBuffer(buf: ColorBuffer) void {
+    clearError();
     binding.drawBuffer(@intFromEnum(buf));
+    checkError(@src().fn_name);
 }
 
 pub fn readBuffer(buf: ColorBuffer) void {
+    clearError();
     binding.readBuffer(@intFromEnum(buf));
+    checkError(@src().fn_name);
 }
 
 pub fn readPixels(
@@ -294,6 +332,7 @@ pub fn readPixels(
     pixel_type: PixelType,
     data: ?[*]u8,
 ) void {
+    clearError();
     binding.readPixels(
         @as(types.Int, @intCast(x)),
         @as(types.Int, @intCast(y)),
@@ -303,14 +342,16 @@ pub fn readPixels(
         @intFromEnum(pixel_type),
         data,
     );
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Vertex Arrays
 
 pub fn createVertexArrays(items: []types.VertexArray) void {
+    clearError();
     binding.createVertexArrays(cs2gl(items.len), @as([*]types.UInt, @ptrCast(items.ptr)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn createVertexArray() types.VertexArray {
@@ -320,8 +361,9 @@ pub fn createVertexArray() types.VertexArray {
 }
 
 pub fn genVertexArrays(items: []types.VertexArray) void {
+    clearError();
     binding.genVertexArrays(cs2gl(items.len), @as([*]types.UInt, @ptrCast(items.ptr)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn genVertexArray() types.VertexArray {
@@ -331,12 +373,15 @@ pub fn genVertexArray() types.VertexArray {
 }
 
 pub fn bindVertexArray(vao: types.VertexArray) void {
+    clearError();
     binding.bindVertexArray(@intFromEnum(vao));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn deleteVertexArrays(items: []const types.VertexArray) void {
+    clearError();
     binding.deleteVertexArrays(cs2gl(items.len), @as([*]const types.UInt, @ptrCast(items.ptr)));
+    checkError(@src().fn_name);
 }
 
 pub fn deleteVertexArray(vao: types.VertexArray) void {
@@ -344,28 +389,33 @@ pub fn deleteVertexArray(vao: types.VertexArray) void {
 }
 
 pub fn enableVertexAttribArray(index: u32) void {
+    clearError();
     binding.enableVertexAttribArray(index);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexAttribDivisor(index: u32, divisor: u32) void {
+    clearError();
     binding.vertexAttribDivisor(index, divisor);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn disableVertexAttribArray(index: u32) void {
+    clearError();
     binding.disableVertexAttribArray(index);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn enableVertexArrayAttrib(vertexArray: types.VertexArray, index: u32) void {
+    clearError();
     binding.enableVertexArrayAttrib(@intFromEnum(vertexArray), index);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn disableVertexArrayAttrib(vertexArray: types.VertexArray, index: u32) void {
+    clearError();
     binding.disableVertexArrayAttrib(@intFromEnum(vertexArray), index);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const Type = enum(types.Enum) {
@@ -385,6 +435,7 @@ pub const Type = enum(types.Enum) {
 };
 
 pub fn vertexAttribFormat(attribindex: u32, size: u32, attribute_type: Type, normalized: bool, relativeoffset: usize) void {
+    clearError();
     binding.vertexAttribFormat(
         attribindex,
         @as(types.Int, @intCast(size)),
@@ -392,31 +443,34 @@ pub fn vertexAttribFormat(attribindex: u32, size: u32, attribute_type: Type, nor
         b2gl(normalized),
         ui2gl(relativeoffset),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexAttribIFormat(attribindex: u32, size: u32, attribute_type: Type, relativeoffset: usize) void {
+    clearError();
     binding.vertexAttribIFormat(
         attribindex,
         @as(types.Int, @intCast(size)),
         @intFromEnum(attribute_type),
         ui2gl(relativeoffset),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexAttribLFormat(attribindex: u32, size: u32, attribute_type: Type, relativeoffset: usize) void {
+    clearError();
     binding.vertexAttribLFormat(
         attribindex,
         @as(types.Int, @intCast(size)),
         @intFromEnum(attribute_type),
         ui2gl(relativeoffset),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 /// NOTE: if you use any integer type, it will cast to a floating point, you are probably looking for vertexAttribIPointer()
 pub fn vertexAttribPointer(attribindex: u32, size: u32, attribute_type: Type, normalized: bool, stride: usize, relativeoffset: usize) void {
+    clearError();
     binding.vertexAttribPointer(
         attribindex,
         @as(types.Int, @intCast(size)),
@@ -425,10 +479,11 @@ pub fn vertexAttribPointer(attribindex: u32, size: u32, attribute_type: Type, no
         cs2gl(stride),
         @as(*allowzero const anyopaque, @ptrFromInt(relativeoffset)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexAttribIPointer(attribindex: u32, size: u32, attribute_type: Type, stride: usize, relativeoffset: usize) void {
+    clearError();
     binding.vertexAttribIPointer(
         attribindex,
         @as(types.Int, @intCast(size)),
@@ -436,7 +491,7 @@ pub fn vertexAttribIPointer(attribindex: u32, size: u32, attribute_type: Type, s
         cs2gl(stride),
         @as(*allowzero const anyopaque, @ptrFromInt(relativeoffset)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexArrayAttribFormat(
@@ -447,6 +502,7 @@ pub fn vertexArrayAttribFormat(
     normalized: bool,
     relativeoffset: usize,
 ) void {
+    clearError();
     binding.vertexArrayAttribFormat(
         @intFromEnum(vertexArray),
         attribindex,
@@ -455,10 +511,11 @@ pub fn vertexArrayAttribFormat(
         b2gl(normalized),
         ui2gl(relativeoffset),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexArrayAttribIFormat(vertexArray: types.VertexArray, attribindex: u32, size: u32, attribute_type: Type, relativeoffset: usize) void {
+    clearError();
     binding.vertexArrayAttribIFormat(
         @intFromEnum(vertexArray),
         attribindex,
@@ -469,10 +526,11 @@ pub fn vertexArrayAttribIFormat(vertexArray: types.VertexArray, attribindex: u32
         @intFromEnum(attribute_type),
         ui2gl(relativeoffset),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexArrayAttribLFormat(vertexArray: types.VertexArray, attribindex: u32, size: u32, attribute_type: Type, relativeoffset: usize) void {
+    clearError();
     binding.vertexArrayAttribLFormat(
         @intFromEnum(vertexArray),
         attribindex,
@@ -483,38 +541,43 @@ pub fn vertexArrayAttribLFormat(vertexArray: types.VertexArray, attribindex: u32
         @intFromEnum(attribute_type),
         @as(types.UInt, @intCast(relativeoffset)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexAttribBinding(attribindex: u32, bindingindex: u32) void {
+    clearError();
     binding.vertexAttribBinding(
         attribindex,
         bindingindex,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 pub fn vertexArrayAttribBinding(vertexArray: types.VertexArray, attribindex: u32, bindingindex: u32) void {
+    clearError();
     binding.vertexArrayAttribBinding(
         @intFromEnum(vertexArray),
         attribindex,
         bindingindex,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bindVertexBuffer(bindingindex: u32, buffer: types.Buffer, offset: usize, stride: usize) void {
+    clearError();
     binding.bindVertexBuffer(bindingindex, @intFromEnum(buffer), offset, cs2gl(stride));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexArrayVertexBuffer(vertexArray: types.VertexArray, bindingindex: u32, buffer: types.Buffer, offset: usize, stride: usize) void {
+    clearError();
     binding.vertexArrayVertexBuffer(@intFromEnum(vertexArray), bindingindex, @intFromEnum(buffer), offset, cs2gl(stride));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn vertexArrayElementBuffer(vertexArray: types.VertexArray, buffer: types.Buffer) void {
+    clearError();
     binding.vertexArrayElementBuffer(@intFromEnum(vertexArray), @intFromEnum(buffer));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -552,8 +615,9 @@ pub const BufferTarget = enum(types.Enum) {
 };
 
 pub fn createBuffers(items: []types.Buffer) void {
+    clearError();
     binding.createBuffers(cs2gl(items.len), @as([*]types.UInt, @ptrCast(items.ptr)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn createBuffer() types.Buffer {
@@ -563,8 +627,9 @@ pub fn createBuffer() types.Buffer {
 }
 
 pub fn genBuffers(items: []types.Buffer) void {
+    clearError();
     binding.genBuffers(cs2gl(items.len), @as([*]types.UInt, @ptrCast(items.ptr)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn genBuffer() types.Buffer {
@@ -574,12 +639,15 @@ pub fn genBuffer() types.Buffer {
 }
 
 pub fn bindBuffer(buf: types.Buffer, target: BufferTarget) void {
+    clearError();
     binding.bindBuffer(@intFromEnum(target), @intFromEnum(buf));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn deleteBuffers(items: []const types.Buffer) void {
+    clearError();
     binding.deleteBuffers(cs2gl(items.len), @as([*]const types.UInt, @ptrCast(items.ptr)));
+    checkError(@src().fn_name);
 }
 
 pub fn deleteBuffer(buf: types.Buffer) void {
@@ -600,68 +668,76 @@ pub const BufferUsage = enum(types.Enum) {
 
 // using align(1) as we are not required to have aligned data here
 pub fn namedBufferData(buf: types.Buffer, comptime T: type, items: []align(1) const T, usage: BufferUsage) void {
+    clearError();
     binding.namedBufferData(
         @intFromEnum(buf),
         cs2gl(@sizeOf(T) * items.len),
         items.ptr,
         @intFromEnum(usage),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn namedBufferSubData(buf: types.Buffer, offset: usize, comptime T: type, items: []align(1) const T) void {
+    clearError();
     binding.namedBufferSubData(
         @intFromEnum(buf),
         offset,
         cs2gl(@sizeOf(T) * items.len),
         items.ptr,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn namedBufferUninitialized(buf: types.Buffer, comptime T: type, count: usize, usage: BufferUsage) void {
+    clearError();
     binding.namedBufferData(
         @intFromEnum(buf),
         cs2gl(@sizeOf(T) * count),
         null,
         @intFromEnum(usage),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bufferData(target: BufferTarget, comptime T: type, items: []align(1) const T, usage: BufferUsage) void {
+    clearError();
     binding.bufferData(
         @intFromEnum(target),
         cs2gl(@sizeOf(T) * items.len),
         items.ptr,
         @intFromEnum(usage),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bufferUninitialized(target: BufferTarget, comptime T: type, count: usize, usage: BufferUsage) void {
+    clearError();
     binding.bufferData(
         @intFromEnum(target),
         cs2gl(@sizeOf(T) * count),
         null,
         @intFromEnum(usage),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bufferSubData(target: BufferTarget, offset: usize, comptime T: type, items: []align(1) const T) void {
+    clearError();
     binding.bufferSubData(@intFromEnum(target), @as(binding.GLintptr, @intCast(offset)), cs2gl(@sizeOf(T) * items.len), items.ptr);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bindBufferBase(target: BufferTarget, index: u32, buffer: types.Buffer) void {
+    clearError();
     binding.bindBufferBase(@intFromEnum(target), index, @intFromEnum(buffer));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bindBufferRange(target: BufferTarget, index: u32, buffer: types.Buffer, offset: u32, size: u32) void {
+    clearError();
     binding.bindBufferRange(@intFromEnum(target), index, @intFromEnum(buffer), offset, size);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const BufferStorageFlags = packed struct {
@@ -681,14 +757,14 @@ pub fn bufferStorage(target: BufferTarget, comptime T: type, count: usize, items
     if (flags.map_persistent) flag_bits |= binding.MAP_PERSISTENT_BIT;
     if (flags.map_coherent) flag_bits |= binding.MAP_COHERENT_BIT;
     if (flags.client_storage) flag_bits |= binding.CLIENT_STORAGE_BIT;
-
+    clearError();
     binding.bufferStorage(
         @intFromEnum(target),
         cs2gl(@sizeOf(T) * count),
         items,
         flag_bits,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn namedBufferStorage(buf: types.Buffer, comptime T: type, count: usize, items: ?[*]align(1) const T, flags: BufferStorageFlags) void {
@@ -699,14 +775,14 @@ pub fn namedBufferStorage(buf: types.Buffer, comptime T: type, count: usize, ite
     if (flags.map_persistent) flag_bits |= binding.MAP_PERSISTENT_BIT;
     if (flags.map_coherent) flag_bits |= binding.MAP_COHERENT_BIT;
     if (flags.client_storage) flag_bits |= binding.CLIENT_STORAGE_BIT;
-
+    clearError();
     binding.namedBufferStorage(
         @intFromEnum(buf),
         cs2gl(@sizeOf(T) * count),
         items,
         flag_bits,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const BufferMapAccess = enum(types.Enum) {
@@ -720,18 +796,20 @@ pub fn mapBuffer(
     comptime T: type,
     access: BufferMapAccess,
 ) [*]align(1) T {
+    clearError();
     const ptr = binding.mapBuffer(
         @intFromEnum(target),
         @intFromEnum(access),
     );
 
-    checkError();
+    checkError(@src().fn_name);
     return @as([*]align(1) T, @ptrCast(ptr));
 }
 
 pub fn unmapBuffer(target: BufferTarget) bool {
+    clearError();
     const ok = binding.unmapBuffer(@intFromEnum(target));
-    checkError();
+    checkError(@src().fn_name);
     return ok == binding.TRUE;
 }
 
@@ -754,14 +832,14 @@ pub fn mapBufferRange(
     if (flags.write) flag_bits |= binding.MAP_WRITE_BIT;
     if (flags.persistent) flag_bits |= binding.MAP_PERSISTENT_BIT;
     if (flags.coherent) flag_bits |= binding.MAP_COHERENT_BIT;
-
+    clearError();
     const ptr = binding.mapBufferRange(
         @intFromEnum(target),
         @as(binding.GLintptr, @intCast(offset)),
         @as(binding.GLsizeiptr, @intCast(@sizeOf(T) * count)),
         flag_bits,
     );
-    checkError();
+    checkError(@src().fn_name);
 
     const values = @as([*]align(1) T, @ptrCast(ptr));
     return values[0..count];
@@ -779,22 +857,23 @@ pub fn mapNamedBufferRange(
     if (flags.write) flag_bits |= binding.MAP_WRITE_BIT;
     if (flags.persistent) flag_bits |= binding.MAP_PERSISTENT_BIT;
     if (flags.coherent) flag_bits |= binding.MAP_COHERENT_BIT;
-
+    clearError();
     const ptr = binding.mapNamedBufferRange(
         @intFromEnum(buf),
         @as(binding.GLintptr, @intCast(offset)),
         @as(binding.GLsizeiptr, @intCast(@sizeOf(T) * count)),
         flag_bits,
     );
-    checkError();
+    checkError(@src().fn_name);
 
     const values = @as([*]align(1) T, @ptrCast(ptr));
     return values[0..count];
 }
 
 pub fn unmapNamedBuffer(buf: types.Buffer) bool {
+    clearError();
     const ok = binding.unmapNamedBuffer(@intFromEnum(buf));
-    checkError();
+    checkError(@src().fn_name);
     return ok != 0;
 }
 
@@ -806,6 +885,7 @@ pub fn copyBufferSubData(
     write_offset: usize,
     count: usize,
 ) void {
+    clearError();
     binding.copyBufferSubData(
         @intFromEnum(read_target),
         @intFromEnum(write_target),
@@ -813,7 +893,7 @@ pub fn copyBufferSubData(
         @as(binding.GLintptr, @intCast(write_offset)),
         @as(binding.GLsizeiptr, @intCast(@sizeOf(T) * count)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -829,22 +909,24 @@ pub const ShaderType = enum(types.Enum) {
 };
 
 pub fn createShader(shaderType: ShaderType) types.Shader {
+    clearError();
     const shader = @as(types.Shader, @enumFromInt(binding.createShader(@intFromEnum(shaderType))));
     if (shader == .invalid) {
-        checkError();
-        unreachable;
+        checkError(@src().fn_name);
     }
     return shader;
 }
 
 pub fn deleteShader(shader: types.Shader) void {
+    clearError();
     binding.deleteShader(@intFromEnum(shader));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn compileShader(shader: types.Shader) void {
+    clearError();
     binding.compileShader(@intFromEnum(shader));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn shaderSource(shader: types.Shader, comptime N: comptime_int, sources: *const [N][]const u8) void {
@@ -858,9 +940,11 @@ pub fn shaderSource(shader: types.Shader, comptime N: comptime_int, sources: *co
         ptr.* = @as(*const types.Char, @ptrCast(src.ptr));
     }
 
+    clearError();
+
     binding.shaderSource(@intFromEnum(shader), N, &ptrs, &lengths);
 
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const ShaderParameter = enum(types.Enum) {
@@ -873,57 +957,67 @@ pub const ShaderParameter = enum(types.Enum) {
 
 pub fn getShader(shader: types.Shader, parameter: ShaderParameter) types.Int {
     var value: types.Int = undefined;
+    clearError();
     binding.getShaderiv(@intFromEnum(shader), @intFromEnum(parameter), &value);
-    checkError();
+    checkError(@src().fn_name);
     return value;
 }
 
 pub fn getShaderInfoLog(shader: types.Shader, allocator: std.mem.Allocator) ![:0]const u8 {
     const length = getShader(shader, .info_log_length);
-    const log = try allocator.allocSentinel(u8, @as(usize, @intCast(length)), 0);
-    errdefer allocator.free(log);
 
-    binding.getShaderInfoLog(@intFromEnum(shader), cs2gl(log.len), null, log.ptr);
-    checkError();
+    const out = try allocator.allocSentinel(u8, @as(usize, @intCast(@max(0, length))), 0);
+    errdefer allocator.free(out);
 
-    return log;
+    if (length <= 0) return out;
+
+    clearError();
+    binding.getShaderInfoLog(@intFromEnum(shader), cs2gl(out.len), null, out.ptr);
+    checkError(@src().fn_name);
+
+    return out;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Program
 
 pub fn createProgram() types.Program {
+    clearError();
     const program = @as(types.Program, @enumFromInt(binding.createProgram()));
     if (program == .invalid) {
-        checkError();
-        unreachable;
+        checkError(@src().fn_name);
     }
     return program;
 }
 
 pub fn deleteProgram(program: types.Program) void {
+    clearError();
     binding.deleteProgram(@intFromEnum(program));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn linkProgram(program: types.Program) void {
+    clearError();
     binding.linkProgram(@intFromEnum(program));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn attachShader(program: types.Program, shader: types.Shader) void {
+    clearError();
     binding.attachShader(@intFromEnum(program), @intFromEnum(shader));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn detachShader(program: types.Program, shader: types.Shader) void {
+    clearError();
     binding.detachShader(@intFromEnum(program), @intFromEnum(shader));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn useProgram(program: types.Program) void {
+    clearError();
     binding.useProgram(@intFromEnum(program));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const ProgramParameter = enum(types.Enum) {
@@ -953,57 +1047,70 @@ pub const ProgramParameter = enum(types.Enum) {
 
 pub fn getProgram(program: types.Program, parameter: ProgramParameter) types.Int {
     var value: types.Int = undefined;
+    clearError();
     binding.getProgramiv(@intFromEnum(program), @intFromEnum(parameter), &value);
-    checkError();
+    checkError(@src().fn_name);
     return value;
 }
 
 pub fn getProgramInfoLog(program: types.Program, allocator: std.mem.Allocator) ![:0]const u8 {
     const length = getProgram(program, .info_log_length);
-    const log = try allocator.allocSentinel(u8, @as(usize, @intCast(length)), 0);
-    errdefer allocator.free(log);
 
-    binding.getProgramInfoLog(@intFromEnum(program), cs2gl(log.len), null, log.ptr);
-    checkError();
+    const out = try allocator.allocSentinel(u8, @as(usize, @intCast(@max(0, length))), 0);
+    errdefer allocator.free(out);
 
-    return log;
+    if (length <= 0) return out;
+
+    clearError();
+    binding.getProgramInfoLog(@intFromEnum(program), cs2gl(out.len), null, out.ptr);
+    checkError(@src().fn_name);
+
+    return out;
 }
 
 pub fn programParameter(program: types.Program, comptime parameter: ProgramParameter, value: types.Int) void {
+    clearError();
     binding.programParameteri(@intFromEnum(program), @intFromEnum(parameter), value);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn getUniformLocation(program: types.Program, name: [:0]const u8) ?u32 {
+    clearError();
     const loc = binding.getUniformLocation(@intFromEnum(program), name.ptr);
-    checkError();
+    checkError(@src().fn_name);
     if (loc < 0)
         return null;
     return @as(u32, @intCast(loc));
 }
 
 pub fn getUniformBlockIndex(program: types.Program, name: [:0]const u8) ?u32 {
+    clearError();
     const loc = binding.getUniformBlockIndex(@intFromEnum(program), name.ptr);
-    checkError();
+    checkError(@src().fn_name);
     if (loc < 0)
         return null;
     return @intCast(loc);
 }
 
 pub fn getAttribLocation(program: types.Program, name: [:0]const u8) ?u32 {
+    clearError();
     const loc = binding.getAttribLocation(@intFromEnum(program), name.ptr);
-    checkError();
+    checkError(@src().fn_name);
     if (loc < 0)
         return null;
     return @as(u32, @intCast(loc));
 }
+
 pub fn bindAttribLocation(program: types.Program, attribute: u32, name: [:0]const u8) void {
+    clearError();
     binding.bindAttribLocation(@intFromEnum(program), attribute, name.ptr);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn uniformBlockBinding(program: types.Program, index: u32, value: u32) void {
+    clearError();
     binding.uniformBlockBinding(@intFromEnum(program), index, value);
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1011,18 +1118,23 @@ pub fn uniformBlockBinding(program: types.Program, index: u32, value: u32) void 
 
 pub fn genProgramPipeline() types.ProgramPipeline {
     var pipeline_name: types.UInt = undefined;
+    clearError();
     binding.genProgramPipelines(1, &pipeline_name);
-    checkError();
+    checkError(@src().fn_name);
     return @enumFromInt(pipeline_name);
 }
 
 pub fn deleteProgramPipeline(pipeline: types.ProgramPipeline) void {
     var id = @intFromEnum(pipeline);
+    clearError();
     binding.deleteProgramPipelines(1, &id);
+    checkError(@src().fn_name);
 }
 
 pub fn bindProgramPipeline(pipeline: types.ProgramPipeline) void {
+    clearError();
     binding.bindProgramPipeline(@intFromEnum(pipeline));
+    checkError(@src().fn_name);
 }
 
 pub const ProgramStagesFlags = packed struct {
@@ -1041,8 +1153,9 @@ pub fn useProgramStages(pipeline: types.ProgramPipeline, stages: ProgramStagesFl
         @as(types.BitField, if (stages.geometry_shader) binding.GEOMETRY_SHADER_BIT else 0) |
         @as(types.BitField, if (stages.fragment_shader) binding.FRAGMENT_SHADER_BIT else 0) |
         @as(types.BitField, if (stages.compute_shader) binding.COMPUTE_SHADER_BIT else 0);
+    clearError();
     binding.useProgramStages(@intFromEnum(pipeline), mask, @intFromEnum(program));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1050,69 +1163,97 @@ pub fn useProgramStages(pipeline: types.ProgramPipeline, stages: ProgramStagesFl
 
 pub fn programUniform1ui(program: types.Program, location: ?u32, value: u32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform1ui(@intFromEnum(program), @as(types.Int, @intCast(loc)), value);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn programUniform1i(program: types.Program, location: ?u32, value: i32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform1i(@intFromEnum(program), @as(types.Int, @intCast(loc)), value);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform3ui(program: types.Program, location: ?u32, x: u32, y: u32, z: u32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform3ui(@intFromEnum(program), @as(types.Int, @intCast(loc)), x, y, z);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform3i(program: types.Program, location: ?u32, x: i32, y: i32, z: i32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform3i(@intFromEnum(program), @as(types.Int, @intCast(loc)), x, y, z);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform2i(program: types.Program, location: ?u32, v0: i32, v1: i32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform2i(@intFromEnum(program), @as(types.Int, @intCast(loc)), v0, v1);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform1f(program: types.Program, location: ?u32, value: f32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform1f(@intFromEnum(program), @as(types.Int, @intCast(loc)), value);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform2f(program: types.Program, location: ?u32, x: f32, y: f32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform2f(@intFromEnum(program), @as(types.Int, @intCast(loc)), x, y);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform3f(program: types.Program, location: ?u32, x: f32, y: f32, z: f32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform3f(@intFromEnum(program), @as(types.Int, @intCast(loc)), x, y, z);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniform4f(program: types.Program, location: ?u32, x: f32, y: f32, z: f32, w: f32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniform4f(@intFromEnum(program), @as(types.Int, @intCast(loc)), x, y, z, w);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn programUniformMatrix4(program: types.Program, location: ?u32, transpose: bool, items: []const [4][4]f32) void {
     if (location) |loc| {
+        clearError();
         binding.programUniformMatrix4fv(
             @intFromEnum(program),
             @as(types.Int, @intCast(loc)),
@@ -1121,180 +1262,255 @@ pub fn programUniformMatrix4(program: types.Program, location: ?u32, transpose: 
 
             @as(*const f32, @ptrCast(items.ptr)),
         );
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("location is null", .{});
     }
 }
 
 pub fn uniform1f(location: ?u32, v0: f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform1f(@as(types.Int, @intCast(loc)), v0);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform2f(location: ?u32, v0: f32, v1: f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform2f(@as(types.Int, @intCast(loc)), v0, v1);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform3f(location: ?u32, v0: f32, v1: f32, v2: f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform3f(@as(types.Int, @intCast(loc)), v0, v1, v2);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform4f(location: ?u32, v0: f32, v1: f32, v2: f32, v3: f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform4f(@as(types.Int, @intCast(loc)), v0, v1, v2, v3);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform1i(location: ?u32, v0: i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform1i(@as(types.Int, @intCast(loc)), v0);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform2i(location: ?u32, v0: i32, v1: i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform2i(@as(types.Int, @intCast(loc)), v0, v1);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform3i(location: ?u32, v0: i32, v1: i32, v2: i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform3i(@as(types.Int, @intCast(loc)), v0, v1, v2);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform4i(location: ?u32, v0: i32, v1: i32, v2: i32, v3: i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform4i(@as(types.Int, @intCast(loc)), v0, v1, v2, v3);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform1ui(location: ?u32, v0: u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform1ui(@as(types.Int, @intCast(loc)), v0);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform2ui(location: ?u32, v0: u32, v1: u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform2ui(@as(types.Int, @intCast(loc)), v0, v1);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform3ui(location: ?u32, v0: u32, v1: u32, v2: u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform3ui(@as(types.Int, @intCast(loc)), v0, v1, v2);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform4ui(location: ?u32, v0: u32, v1: u32, v2: u32, v3: u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform4ui(@as(types.Int, @intCast(loc)), v0, v1, v2, v3);
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform1fv(location: ?u32, items: []const f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform1fv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const f32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform2fv(location: ?u32, items: []const [2]f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform2fv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const f32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform3fv(location: ?u32, items: []const [3]f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform3fv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const f32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform4fv(location: ?u32, items: []const [4]f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform4fv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const f32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform1iv(location: ?u32, items: []const i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform1iv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const i32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform2iv(location: ?u32, items: []const [2]i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform2iv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const i32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform3iv(location: ?u32, items: []const [3]i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform3iv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const i32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform4iv(location: ?u32, items: []const [4]i32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform4iv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const i32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform1uiv(location: ?u32, items: []const u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform1uiv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const u32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform2uiv(location: ?u32, items: []const [2]u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform2uiv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const u32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform3uiv(location: ?u32, items: []const [3]u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform3uiv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const u32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniform4uiv(location: ?u32, items: []const [4]u32) void {
     if (location) |loc| {
+        clearError();
         binding.uniform4uiv(@as(types.Int, @intCast(loc)), cs2gl(items.len), @as(*const u32, @ptrCast(items.ptr)));
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
 pub fn uniformMatrix4fv(location: ?u32, transpose: bool, items: []const [4][4]f32) void {
     if (location) |loc| {
+        clearError();
         binding.uniformMatrix4fv(
             @as(types.Int, @intCast(loc)),
             cs2gl(items.len),
@@ -1302,7 +1518,9 @@ pub fn uniformMatrix4fv(location: ?u32, transpose: bool, items: []const [4][4]f3
 
             @as(*const f32, @ptrCast(items.ptr)),
         );
-        checkError();
+        checkError(@src().fn_name);
+    } else {
+        log.err("uniform location is null", .{});
     }
 }
 
@@ -1325,13 +1543,15 @@ pub const PrimitiveType = enum(types.Enum) {
 };
 
 pub fn drawArrays(primitiveType: PrimitiveType, first: usize, count: usize) void {
+    clearError();
     binding.drawArrays(@intFromEnum(primitiveType), cs2gl(first), cs2gl(count));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn drawArraysInstanced(primitiveType: PrimitiveType, first: usize, count: usize, instanceCount: usize) void {
+    clearError();
     binding.drawArraysInstanced(@intFromEnum(primitiveType), cs2gl(first), cs2gl(count), cs2gl(instanceCount));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const ElementType = enum(types.Enum) {
@@ -1341,16 +1561,18 @@ pub const ElementType = enum(types.Enum) {
 };
 
 pub fn drawElements(primitiveType: PrimitiveType, count: usize, element_type: ElementType, indices: usize) void {
+    clearError();
     binding.drawElements(
         @intFromEnum(primitiveType),
         cs2gl(count),
         @intFromEnum(element_type),
         @as(*allowzero const anyopaque, @ptrFromInt(indices)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn drawElementsBaseVertex(primitiveType: PrimitiveType, count: usize, element_type: ElementType, indices: usize, baseVertex: i32) void {
+    clearError();
     binding.drawElementsBaseVertex(
         @intFromEnum(primitiveType),
         cs2gl(count),
@@ -1358,10 +1580,11 @@ pub fn drawElementsBaseVertex(primitiveType: PrimitiveType, count: usize, elemen
         @as(*allowzero const anyopaque, @ptrFromInt(indices)),
         baseVertex,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn drawElementsInstanced(primitiveType: PrimitiveType, count: usize, element_type: ElementType, indices: usize, instance_count: usize) void {
+    clearError();
     binding.drawElementsInstanced(
         @intFromEnum(primitiveType),
         cs2gl(count),
@@ -1369,17 +1592,18 @@ pub fn drawElementsInstanced(primitiveType: PrimitiveType, count: usize, element
         @as(*allowzero const anyopaque, @ptrFromInt(indices)),
         cs2gl(instance_count),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn multiDrawArrays(primitiveType: PrimitiveType, first: []types.Int, count: []types.SizeI, drawcount: usize) void {
+    clearError();
     binding.multiDrawArrays(
         @intFromEnum(primitiveType),
         @as([*]const types.Int, @ptrCast(first.ptr)),
         @as([*]const types.SizeI, @ptrCast(count.ptr)),
         cs2gl(drawcount),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1417,23 +1641,27 @@ pub const Capabilities = enum(types.Enum) {
 };
 
 pub fn enable(cap: Capabilities) void {
+    clearError();
     binding.enable(@intFromEnum(cap));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn disable(cap: Capabilities) void {
+    clearError();
     binding.disable(@intFromEnum(cap));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn enableI(cap: Capabilities, index: u32) void {
+    clearError();
     binding.enablei(@intFromEnum(cap), index);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn disableI(cap: Capabilities, index: u32) void {
+    clearError();
     binding.disablei(@intFromEnum(cap), index);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const ClipOrigin = enum(types.Enum) {
@@ -1446,8 +1674,9 @@ pub const ClipDepth = enum(types.Enum) {
 };
 
 pub fn clipControl(origin: ClipOrigin, depth: ClipDepth) void {
+    clearError();
     binding.clipControl(@intFromEnum(origin), @intFromEnum(depth));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const CullMode = enum(types.Enum) {
@@ -1457,13 +1686,15 @@ pub const CullMode = enum(types.Enum) {
 };
 
 pub fn cullFace(mode: CullMode) void {
+    clearError();
     binding.cullFace(@intFromEnum(mode));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn depthMask(enabled: bool) void {
+    clearError();
     binding.depthMask(if (enabled) binding.TRUE else binding.FALSE);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const DepthFunc = enum(types.Enum) {
@@ -1478,8 +1709,9 @@ pub const DepthFunc = enum(types.Enum) {
 };
 
 pub fn depthFunc(func: DepthFunc) void {
+    clearError();
     binding.depthFunc(@intFromEnum(func));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const Face = enum(types.Enum) {
@@ -1488,13 +1720,15 @@ pub const Face = enum(types.Enum) {
 };
 
 pub fn frontFace(mode: Face) void {
+    clearError();
     binding.frontFace(@intFromEnum(mode));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn stencilMask(mask: u32) void {
+    clearError();
     binding.stencilMask(mask);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const StencilFunc = enum(types.Enum) {
@@ -1509,8 +1743,9 @@ pub const StencilFunc = enum(types.Enum) {
 };
 
 pub fn stencilFunc(func: StencilFunc, ref: i32, mask: u32) void {
+    clearError();
     binding.stencilFunc(@intFromEnum(func), ref, mask);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const StencilOp = enum(types.Enum) {
@@ -1525,8 +1760,9 @@ pub const StencilOp = enum(types.Enum) {
 };
 
 pub fn stencilOp(sfail: StencilOp, dpfail: StencilOp, dppass: StencilOp) void {
+    clearError();
     binding.stencilOp(@intFromEnum(sfail), @intFromEnum(dpfail), @intFromEnum(dppass));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const BlendFactor = enum(types.Enum) {
@@ -1552,13 +1788,15 @@ pub const BlendFactor = enum(types.Enum) {
 };
 
 pub fn blendFunc(sfactor: BlendFactor, dfactor: BlendFactor) void {
+    clearError();
     binding.blendFunc(@intFromEnum(sfactor), @intFromEnum(dfactor));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn blendFuncSeparate(srcRGB: BlendFactor, dstRGB: BlendFactor, srcAlpha: BlendFactor, dstAlpha: BlendFactor) void {
+    clearError();
     binding.blendFuncSeparate(@intFromEnum(srcRGB), @intFromEnum(dstRGB), @intFromEnum(srcAlpha), @intFromEnum(dstAlpha));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const BlendEquation = enum(types.Enum) {
@@ -1570,18 +1808,21 @@ pub const BlendEquation = enum(types.Enum) {
 };
 
 pub fn blendEquation(equation: BlendEquation) void {
+    clearError();
     binding.blendEquation(@intFromEnum(equation));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn blendEquationi(buf: u32, equation: BlendEquation) void {
+    clearError();
     binding.blendEquationi(buf, @intFromEnum(equation));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn blendEquationSeparate(equationRgb: BlendEquation, equationAlpha: BlendEquation) void {
+    clearError();
     binding.blendEquationSeparate(@intFromEnum(equationRgb), @intFromEnum(equationAlpha));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const DrawMode = enum(types.Enum) {
@@ -1591,23 +1832,27 @@ pub const DrawMode = enum(types.Enum) {
 };
 
 pub fn polygonMode(face: CullMode, mode: DrawMode) void {
+    clearError();
     binding.polygonMode(@intFromEnum(face), @intFromEnum(mode));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn polygonOffset(factor: f32, units: f32) void {
+    clearError();
     binding.polygonOffset(factor, units);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn pointSize(size: f32) void {
+    clearError();
     binding.pointSize(size);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn lineWidth(size: f32) void {
+    clearError();
     binding.lineWidth(size);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const TextureTarget = enum(types.Enum) {
@@ -1626,20 +1871,22 @@ pub const TextureTarget = enum(types.Enum) {
 
 pub fn genTexture() types.Texture {
     var tex_name: types.UInt = undefined;
+    clearError();
     binding.genTextures(1, &tex_name);
-    checkError();
+    checkError(@src().fn_name);
     return @as(types.Texture, @enumFromInt(tex_name));
 }
 
 pub fn createTexture(texture_target: TextureTarget) types.Texture {
     var tex_name: types.UInt = undefined;
 
+    clearError();
     binding.createTextures(@intFromEnum(texture_target), 1, &tex_name);
-    checkError();
+    checkError(@src().fn_name);
 
     const texture = @as(types.Texture, @enumFromInt(tex_name));
     if (texture == .invalid) {
-        checkError();
+        checkError(@src().fn_name);
         unreachable;
     }
     return texture;
@@ -1647,32 +1894,39 @@ pub fn createTexture(texture_target: TextureTarget) types.Texture {
 
 pub fn deleteTexture(texture: types.Texture) void {
     var id = @intFromEnum(texture);
+    clearError();
     binding.deleteTextures(1, &id);
+    checkError(@src().fn_name);
 }
 
 pub fn generateMipmap(target: TextureTarget) void {
+    clearError();
     binding.generateMipmap(@intFromEnum(target));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn generateTextureMipmap(texture: types.Texture) void {
+    clearError();
     binding.generateTextureMipmap(@intFromEnum(texture));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bindTextureUnit(texture: types.Texture, unit: u32) void {
+    clearError();
     binding.bindTextureUnit(unit, @intFromEnum(texture));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bindTexture(texture: types.Texture, target: TextureTarget) void {
+    clearError();
     binding.bindTexture(@intFromEnum(target), @intFromEnum(texture));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn activeTexture(texture_unit: TextureUnit) void {
+    clearError();
     binding.activeTexture(@intFromEnum(texture_unit));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const TextureUnit = enum(types.Enum) {
@@ -1753,24 +2007,26 @@ pub fn TextureParameterType(comptime param: TextureParameter) type {
 pub fn texParameter(target: TextureTarget, comptime parameter: TextureParameter, value: TextureParameterType(parameter)) void {
     const T = TextureParameterType(parameter);
     const info = @typeInfo(T);
+    clearError();
     switch (info) {
         .@"enum" => binding.texParameteri(@intFromEnum(target), @intFromEnum(parameter), @intFromEnum(value)),
         .int => binding.texParameteri(@intFromEnum(target), @intFromEnum(parameter), value),
         else => @compileError(@tagName(info) ++ " is not supported yet by texParameter"),
     }
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureParameter(texture: types.Texture, comptime parameter: TextureParameter, value: TextureParameterType(parameter)) void {
     const T = TextureParameterType(parameter);
     const info = @typeInfo(T);
 
+    clearError();
     if (info == .@"enum") {
         binding.textureParameteri(@intFromEnum(texture), @intFromEnum(parameter), @intFromEnum(value));
     } else {
         @compileError(@tagName(info) ++ " is not supported yet by textureParameter");
     }
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const TextureInternalFormat = enum(types.Enum) {
@@ -1863,6 +2119,7 @@ pub fn texStorage2D(
     width: usize,
     height: usize,
 ) void {
+    clearError();
     binding.texStorage2D(
         @intFromEnum(target),
         @as(types.SizeI, @intCast(levels)),
@@ -1870,7 +2127,7 @@ pub fn texStorage2D(
         @as(types.SizeI, @intCast(width)),
         @as(types.SizeI, @intCast(height)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureStorage2D(
@@ -1880,6 +2137,7 @@ pub fn textureStorage2D(
     width: usize,
     height: usize,
 ) void {
+    clearError();
     binding.textureStorage2D(
         @intFromEnum(texture),
         @as(types.SizeI, @intCast(levels)),
@@ -1887,12 +2145,13 @@ pub fn textureStorage2D(
         @as(types.SizeI, @intCast(width)),
         @as(types.SizeI, @intCast(height)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn texStorage3D(target: TextureTarget, levels: usize, internalformat: TextureInternalFormat, width: usize, height: usize, depth: usize) void {
+    clearError();
     binding.texStorage3D(@intFromEnum(target), @as(types.SizeI, @intCast(levels)), @intFromEnum(internalformat), @as(types.SizeI, @intCast(width)), @as(types.SizeI, @intCast(height)), @as(types.SizeI, @intCast(depth)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureStorage3D(
@@ -1903,6 +2162,7 @@ pub fn textureStorage3D(
     height: usize,
     depth: usize,
 ) void {
+    clearError();
     binding.textureStorage3D(
         @intFromEnum(texture),
         @as(types.SizeI, @intCast(levels)),
@@ -1911,7 +2171,7 @@ pub fn textureStorage3D(
         @as(types.SizeI, @intCast(height)),
         @as(types.SizeI, @intCast(depth)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const PixelFormat = enum(types.Enum) {
@@ -1963,12 +2223,13 @@ pub fn texBuffer(
     pixel_internal_format: TextureInternalFormat,
     buffer: types.Buffer,
 ) void {
+    clearError();
     binding.texBuffer(
         @intFromEnum(texture_target),
         @intFromEnum(pixel_internal_format),
         @intFromEnum(buffer),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureImage2D(
@@ -1981,6 +2242,7 @@ pub fn textureImage2D(
     pixel_type: PixelType,
     data: ?[*]const u8,
 ) void {
+    clearError();
     binding.texImage2D(
         @intFromEnum(texture),
         @as(types.Int, @intCast(level)),
@@ -1992,7 +2254,7 @@ pub fn textureImage2D(
         @intFromEnum(pixel_type),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn texSubImage2D(
@@ -2006,6 +2268,7 @@ pub fn texSubImage2D(
     pixel_type: PixelType,
     data: ?[*]const u8,
 ) void {
+    clearError();
     binding.texSubImage2D(
         @intFromEnum(texture_target),
         @as(types.Int, @intCast(level)),
@@ -2017,7 +2280,7 @@ pub fn texSubImage2D(
         @intFromEnum(pixel_type),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureSubImage2D(
@@ -2031,6 +2294,7 @@ pub fn textureSubImage2D(
     pixel_type: PixelType,
     data: ?[*]const u8,
 ) void {
+    clearError();
     binding.textureSubImage2D(
         @intFromEnum(texture),
         @as(types.Int, @intCast(level)),
@@ -2042,7 +2306,7 @@ pub fn textureSubImage2D(
         @intFromEnum(pixel_type),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureSubImage3D(
@@ -2058,6 +2322,7 @@ pub fn textureSubImage3D(
     pixel_type: PixelType,
     pixels: ?[*]const u8,
 ) void {
+    clearError();
     binding.textureSubImage3D(
         @intFromEnum(texture),
         @as(types.Int, @intCast(level)),
@@ -2071,7 +2336,7 @@ pub fn textureSubImage3D(
         @intFromEnum(pixel_type),
         pixels,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn textureImage3D(
@@ -2085,6 +2350,7 @@ pub fn textureImage3D(
     pixel_type: PixelType,
     data: ?[*]const u8,
 ) void {
+    clearError();
     binding.texImage3D(
         @intFromEnum(texture),
         @as(types.Int, @intCast(level)),
@@ -2097,7 +2363,7 @@ pub fn textureImage3D(
         @intFromEnum(pixel_type),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn texSubImage3D(
@@ -2113,6 +2379,7 @@ pub fn texSubImage3D(
     pixel_type: PixelType,
     data: ?[*]const u8,
 ) void {
+    clearError();
     binding.texSubImage3D(
         @intFromEnum(texture_target),
         @as(types.Int, @intCast(level)),
@@ -2126,7 +2393,7 @@ pub fn texSubImage3D(
         @intFromEnum(pixel_type),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn getTexImage(
@@ -2136,6 +2403,7 @@ pub fn getTexImage(
     pixel_type: PixelType,
     data: [*]u8,
 ) void {
+    clearError();
     binding.getTexImage(
         @intFromEnum(texture_target),
         @as(types.Int, @intCast(level)),
@@ -2143,7 +2411,7 @@ pub fn getTexImage(
         @intFromEnum(pixel_type),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn getTextureSubImage(
@@ -2160,6 +2428,7 @@ pub fn getTextureSubImage(
     size: usize,
     data: [*]u8,
 ) void {
+    clearError();
     binding.getTextureSubImage(
         @intFromEnum(texture),
         @as(types.Int, @intCast(level)),
@@ -2174,7 +2443,7 @@ pub fn getTextureSubImage(
         @as(types.SizeI, @intCast(size)),
         data,
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn copyTexSubImage2D(
@@ -2187,6 +2456,7 @@ pub fn copyTexSubImage2D(
     width: usize,
     height: usize,
 ) void {
+    clearError();
     binding.copyTexSubImage2D(
         @intFromEnum(target),
         @as(types.Int, @intCast(level)),
@@ -2197,7 +2467,7 @@ pub fn copyTexSubImage2D(
         @as(types.SizeI, @intCast(width)),
         @as(types.SizeI, @intCast(height)),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn bindImageTexture(
@@ -2209,6 +2479,7 @@ pub fn bindImageTexture(
     access: BufferMapAccess,
     format: TextureInternalFormat,
 ) void {
+    clearError();
     binding.bindImageTexture(
         @as(types.UInt, @intCast(unit)),
         @intFromEnum(texture),
@@ -2218,7 +2489,7 @@ pub fn bindImageTexture(
         @intFromEnum(access),
         @intFromEnum(format),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const PixelStoreParameter = enum(types.Enum) {
@@ -2242,18 +2513,21 @@ pub const PixelStoreParameter = enum(types.Enum) {
 };
 
 pub fn pixelStore(param: PixelStoreParameter, value: usize) void {
+    clearError();
     binding.pixelStorei(@intFromEnum(param), @as(types.Int, @intCast(value)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn viewport(x: i32, y: i32, width: usize, height: usize) void {
+    clearError();
     binding.viewport(@as(types.Int, @intCast(x)), @as(types.Int, @intCast(y)), @as(types.SizeI, @intCast(width)), @as(types.SizeI, @intCast(height)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn scissor(x: i32, y: i32, width: usize, height: usize) void {
+    clearError();
     binding.scissor(@as(types.Int, @intCast(x)), @as(types.Int, @intCast(y)), @as(types.SizeI, @intCast(width)), @as(types.SizeI, @intCast(height)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const RenderbufferTarget = enum(types.Enum) {
@@ -2262,11 +2536,12 @@ pub const RenderbufferTarget = enum(types.Enum) {
 
 pub fn createRenderbuffer() types.Renderbuffer {
     var rb_name: types.UInt = undefined;
+    clearError();
     binding.createRenderbuffers(1, &rb_name);
-    checkError();
+    checkError(@src().fn_name);
     const framebuffer = @as(types.Renderbuffer, @enumFromInt(rb_name));
     if (framebuffer == .invalid) {
-        checkError();
+        checkError(@src().fn_name);
         unreachable;
     }
     return framebuffer;
@@ -2274,8 +2549,9 @@ pub fn createRenderbuffer() types.Renderbuffer {
 
 pub fn genRenderbuffer() types.Renderbuffer {
     var rb_name: types.UInt = undefined;
+    clearError();
     binding.genRenderbuffers(1, &rb_name);
-    checkError();
+    checkError(@src().fn_name);
     const framebuffer = @as(types.Renderbuffer, @enumFromInt(rb_name));
     if (framebuffer == .invalid) unreachable;
     return framebuffer;
@@ -2283,12 +2559,15 @@ pub fn genRenderbuffer() types.Renderbuffer {
 
 pub fn deleteRenderbuffer(buf: types.Renderbuffer) void {
     var rb_name = @intFromEnum(buf);
+    clearError();
     binding.deleteRenderbuffers(1, &rb_name);
+    checkError(@src().fn_name);
 }
 
 pub fn bindRenderbuffer(buf: types.Renderbuffer, target: RenderbufferTarget) void {
+    clearError();
     binding.bindRenderbuffer(@intFromEnum(target), @intFromEnum(buf));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn renderbufferStorage(
@@ -2299,8 +2578,10 @@ pub fn renderbufferStorage(
     height: usize,
 ) void {
     buf.bind(.buffer);
+
+    clearError();
     binding.renderbufferStorage(@intFromEnum(target), @intFromEnum(pixel_internal_format), @as(types.SizeI, @intCast(width)), @as(types.SizeI, @intCast(height)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn renderbufferStorageMultisample(
@@ -2312,8 +2593,10 @@ pub fn renderbufferStorageMultisample(
     height: usize,
 ) void {
     buf.bind(.buffer);
+
+    clearError();
     binding.renderbufferStorageMultisample(@intFromEnum(target), @as(types.SizeI, @intCast(samples)), @intFromEnum(pixel_internal_format), @as(types.SizeI, @intCast(width)), @as(types.SizeI, @intCast(height)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const FramebufferTarget = enum(types.Enum) {
@@ -2324,11 +2607,12 @@ pub const FramebufferTarget = enum(types.Enum) {
 
 pub fn createFramebuffer() types.Framebuffer {
     var fb_name: types.UInt = undefined;
+    clearError();
     binding.createFramebuffers(1, &fb_name);
-    checkError();
+    checkError(@src().fn_name);
     const framebuffer = @as(types.Framebuffer, @enumFromInt(fb_name));
     if (framebuffer == .invalid) {
-        checkError();
+        checkError(@src().fn_name);
         unreachable;
     }
     return framebuffer;
@@ -2336,8 +2620,9 @@ pub fn createFramebuffer() types.Framebuffer {
 
 pub fn genFramebuffer() types.Framebuffer {
     var fb_name: types.UInt = undefined;
+    clearError();
     binding.genFramebuffers(1, &fb_name);
-    checkError();
+    checkError(@src().fn_name);
     const framebuffer = @as(types.Framebuffer, @enumFromInt(fb_name));
     if (framebuffer == .invalid) unreachable;
     return framebuffer;
@@ -2345,12 +2630,15 @@ pub fn genFramebuffer() types.Framebuffer {
 
 pub fn deleteFramebuffer(buf: types.Framebuffer) void {
     var fb_name = @intFromEnum(buf);
+    clearError();
     binding.deleteFramebuffers(1, &fb_name);
+    checkError(@src().fn_name);
 }
 
 pub fn bindFramebuffer(buf: types.Framebuffer, target: FramebufferTarget) void {
+    clearError();
     binding.bindFramebuffer(@intFromEnum(target), @intFromEnum(buf));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const FramebufferAttachment = enum(types.Enum) {
@@ -2374,8 +2662,9 @@ pub const FramebufferAttachment = enum(types.Enum) {
 
 pub fn framebufferTexture(buffer: types.Framebuffer, target: FramebufferTarget, attachment: FramebufferAttachment, texture: types.Texture, level: i32) void {
     buffer.bind(.buffer);
+    clearError();
     binding.framebufferTexture(@intFromEnum(target), @intFromEnum(attachment), @as(types.UInt, @intCast(@intFromEnum(texture))), @as(types.Int, @intCast(level)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub const FramebufferTextureTarget = enum(types.Enum) {
@@ -2398,14 +2687,16 @@ pub const FramebufferTextureTarget = enum(types.Enum) {
 
 pub fn framebufferTexture2D(buffer: types.Framebuffer, target: FramebufferTarget, attachment: FramebufferAttachment, textarget: FramebufferTextureTarget, texture: types.Texture, level: i32) void {
     buffer.bind(.buffer);
+    clearError();
     binding.framebufferTexture2D(@intFromEnum(target), @intFromEnum(attachment), @intFromEnum(textarget), @as(types.UInt, @intCast(@intFromEnum(texture))), @as(types.Int, @intCast(level)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn framebufferRenderbuffer(buffer: types.Framebuffer, target: FramebufferTarget, attachment: FramebufferAttachment, rbtarget: RenderbufferTarget, renderbuffer: types.Renderbuffer) void {
     buffer.bind(.buffer);
+    clearError();
     binding.framebufferRenderbuffer(@intFromEnum(target), @intFromEnum(attachment), @intFromEnum(rbtarget), @as(types.UInt, @intCast(@intFromEnum(renderbuffer))));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 const FramebufferStatus = enum(types.UInt) {
@@ -2413,12 +2704,16 @@ const FramebufferStatus = enum(types.UInt) {
 };
 
 pub fn checkFramebufferStatus(target: FramebufferTarget) FramebufferStatus {
+    clearError();
     const status = @as(FramebufferStatus, @enumFromInt(binding.checkFramebufferStatus(@intFromEnum(target))));
+    checkError(@src().fn_name);
     return status;
 }
 
 pub fn drawBuffers(bufs: []const FramebufferAttachment) void {
+    clearError();
     binding.drawBuffers(cs2gl(bufs.len), @as([*]const types.UInt, @ptrCast(bufs.ptr)));
+    checkError(@src().fn_name);
 }
 
 pub fn blitFramebuffer(
@@ -2433,6 +2728,7 @@ pub fn blitFramebuffer(
     mask: struct { color: bool = false, depth: bool = false, stencil: bool = false },
     filter: enum(types.UInt) { nearest = binding.NEAREST, linear = binding.LINEAR },
 ) void {
+    clearError();
     binding.blitFramebuffer(
         @as(types.Int, @intCast(srcX0)),
         @as(types.Int, @intCast(srcY0)),
@@ -2447,46 +2743,52 @@ pub fn blitFramebuffer(
             @as(types.BitField, if (mask.stencil) binding.STENCIL_BUFFER_BIT else 0),
         @intFromEnum(filter),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Invalidation
 pub fn invalidateTexImage(texture: types.Texture, level: types.Int) void {
+    clearError();
     binding.invalidateTexImage(@intFromEnum(texture), level);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn invalidateBufferSubData(buffer: types.Buffer, comptime T: type, offset: usize, count: usize) void {
+    clearError();
     binding.invalidateBufferSubData(
         @intFromEnum(buffer),
         @as(binding.GLintptr, @intCast(offset)),
         cs2gl(@sizeOf(T) * count),
     );
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn invalidateBufferData(buffer: types.Buffer) void {
+    clearError();
     binding.invalidateBufferData(@intFromEnum(buffer));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn invalidateFramebuffer(target: FramebufferTarget, attachments: []const FramebufferAttachment) void {
+    clearError();
     binding.invalidateFramebuffer(@intFromEnum(target), cs2gl(attachments.len), @as([*]const types.Enum, @ptrCast(attachments.ptr)));
-    checkError();
+    checkError(@src().fn_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Syncing
 pub fn fenceSync() types.Sync {
+    clearError();
     const sync = binding.fenceSync(binding.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    checkError();
+    checkError(@src().fn_name);
     return sync;
 }
 
 pub fn deleteSync(sync: types.Sync) void {
+    clearError();
     binding.deleteSync(sync);
-    checkError();
+    checkError(@src().fn_name);
 }
 
 pub fn clientWaitSync(
@@ -2494,8 +2796,9 @@ pub fn clientWaitSync(
     force_flush: bool,
     timeout: usize,
 ) enum { already_signaled, timeout_expired, condition_satisfied, wait_failed } {
+    clearError();
     const result = binding.clientWaitSync(sync, binding.SYNC_FLUSH_COMMANDS_BIT * @intFromBool(force_flush), @as(types.UInt64, timeout));
-    checkError();
+    checkError(@src().fn_name);
     return switch (result) {
         binding.ALREADY_SIGNALED => .already_signaled,
         binding.TIMEOUT_EXPIRED => .timeout_expired,
@@ -2692,8 +2995,9 @@ pub const Parameter = enum(types.Enum) {
 
 pub fn getInteger(parameter: Parameter) i32 {
     var value: types.Int = undefined;
+    clearError();
     binding.getIntegerv(@intFromEnum(parameter), &value);
-    checkError();
+    checkError(@src().fn_name);
     return value;
 }
 
@@ -2706,10 +3010,16 @@ pub const StringParameter = enum(types.Enum) {
 };
 
 pub fn getStringi(parameter: StringParameter, index: u32) ?[:0]const u8 {
-    return std.mem.span(binding.getStringi(@intFromEnum(parameter), index));
+    clearError();
+    const out = std.mem.span(binding.getStringi(@intFromEnum(parameter), index));
+    checkError(@src().fn_name);
+    return out;
 }
 pub fn getString(parameter: StringParameter) ?[:0]const u8 {
-    return std.mem.span(binding.getString(@intFromEnum(parameter)));
+    clearError();
+    const out = std.mem.span(binding.getString(@intFromEnum(parameter)));
+    checkError(@src().fn_name);
+    return out;
 }
 
 pub fn hasExtension(extension: [:0]const u8) bool {
