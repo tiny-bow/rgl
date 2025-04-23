@@ -1,6 +1,6 @@
 .{
-    .name = .zgl,
-    .fingerprint = 0xc89fe4870069f3a7,
+    .name = .rgl,
+    .fingerprint = 0xc68cb53f6d9b3737,
     .version = "1.1.0",
 
     .dependencies = .{},
